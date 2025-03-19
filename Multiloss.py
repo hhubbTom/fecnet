@@ -75,7 +75,7 @@ class OfflearningLoss(nn.Module):
         self.register_buffer('fec_bins', fec_bins.float())
 
     def forward(self, pred_bitrate, gcc_bitrate, fec_table, 
-                frame_samples, loss_flags, loss_counts):
+                frame_samples, loss_flags, loss_counts, delay_gradient):
         """
         Args:
             pred_bitrate: predicted bitrate (batch)
@@ -85,16 +85,26 @@ class OfflearningLoss(nn.Module):
             loss_flags: loss flag (batch, N)
             loss_counts: loss packet nums (batch, N)
         """
-        bitrate_loss = F.mse_loss(pred_bitrate, gcc_bitrate)
+        # bitrate_loss = F.mse_loss(pred_bitrate, gcc_bitrate)
+        bitrate_diff = pred_bitrate - gcc_bitrate
+        positive_diff = torch.clamp(bitrate_diff, min=0)  
+        negative_diff = torch.clamp(-bitrate_diff, min=0) 
+        
+        over_weight = delay_gradient  # 假设gcc_congestion已归一化到[0,1]
+        under_weight = 1 - delay_gradient        
+        bitrate_loss = (positive_diff**2 * over_weight + negative_diff**2 * under_weight).mean()
+        
         mask = loss_flags.bool()
-        # if not mask.any():
-        #     return bitrate_loss  # no packets loss
-        frame_sizes = frame_samples[mask].float()   # 发生丢包的帧大小
-        loss_counts = loss_counts[mask].float()        # 对应的丢包数量
+        if not mask.any():
+            return bitrate_loss  # no packets loss
+        frame_sizes = frame_samples[mask].float()   
+        loss_counts = loss_counts[mask].float()      
         
         actual_loss_rate = loss_counts / frame_sizes
         bin_indices = torch.bucketize(frame_sizes, self.fec_bins, right=True) # (a, b]
-        predicted_fec = fec_table[bin_indices] # maybe some question
+        batch_indices = torch.arange(fec_table.size(0), device=fec_table.device)[:, None]
+        predicted_fec = fec_table[batch_indices,bin_indices] 
+        
         under_protect = actual_loss_rate > predicted_fec
         over_protect = actual_loss_rate <= predicted_fec
         loss_under = (actual_loss_rate[under_protect] - predicted_fec[under_protect]).sum() * 3

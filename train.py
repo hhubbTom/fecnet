@@ -1,119 +1,127 @@
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader, Dataset
-import argparse
+# train.py
 import os
-from datetime import datetime
-from FrameTransformer import FrameTransformer
-from Fecnet import fecnet
-from Multiloss import OfflearningLoss
-from Dataset import OfflearningDataset
-
 import torch
 from torch.utils.data import DataLoader
-import torch.optim as optim
+from torch.optim import Adam
+from torch.optim.lr_scheduler import StepLR
+from tqdm import tqdm
+from config import config  # 导入配置
+from FrameTransformer import FrameTransformer
+from Fecnet import fecnet
+from Dataset import OfflearningDataset, collate_fn
+import pdb
+from Multiloss import OfflearningLoss
 
-# 定义训练流程
-def train(
-    data_dir, 
-    fec_bins, 
-    model, 
-    loss_fn, 
-    num_epochs=10, 
-    lr=1e-3, 
-    device="cuda" if torch.cuda.is_available() else "cpu"
+def train():
+    dataset = OfflearningDataset(config.data_dir)
+    pdb.set_trace()
+    frame_transformer = FrameTransformer(
+        d_model=config.frame_transformer_params["d_model"],
+        nhead=config.frame_transformer_params["nhead"],
+        num_layers=config.frame_transformer_params["num_layers"],
+        dim_feedforward=config.frame_transformer_params["dim_feedforward"]
+    )
+    
+    model = fecnet(
+        frame_transformer,
+        gcc_input_dim=config.fecnet_params["gcc_input_dim"]
+    ).to(config.device)
+    
+    loss_fn = OfflearningLoss(config.fec_bins).to(config.device)
+    
+    optimizer = Adam(
+        model.parameters(),
+        lr=config.optimizer_params["lr"],
+        betas=config.optimizer_params["betas"],
+        weight_decay=config.optimizer_params["weight_decay"]
+    )
+    
+    scheduler = StepLR(
+        optimizer,
+        step_size=config.scheduler_params["step_size"],
+        gamma=config.scheduler_params["gamma"]
+    )
+    train_loop(
+        model=model,
+        dataset=dataset,
+        loss_fn=loss_fn,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        device=config.device,
+        num_epochs=config.num_epochs,
+        batch_size=config.batch_size,
+        checkpoint_dir=config.checkpoint_dir,
+        resume_checkpoint=config.resume_checkpoint
+    )
+
+def train_loop(
+    model, dataset, loss_fn, optimizer, scheduler, device,
+    num_epochs, batch_size, checkpoint_dir, resume_checkpoint
 ):
-    # 初始化 Dataset 和 DataLoader
-    dataset = OfflearningDataset(data_dir, fec_bins)
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=True)  # 每个 CSV 文件是一个 batch
-
-    # 模型和损失函数移至设备
-    model = model.to(device)
-    loss_fn = loss_fn.to(device)
-
-    # 优化器
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
+    if resume_checkpoint:
+        print(f"Loading checkpoint from {resume_checkpoint}...")
+        checkpoint = torch.load(resume_checkpoint, map_location=device)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        start_epoch = checkpoint["epoch"] + 1
+    else:
+        start_epoch = 0
 
     # 训练循环
-    for epoch in range(num_epochs):
+    for epoch in range(start_epoch, num_epochs):
         model.train()
         total_loss = 0.0
+        progress_bar = tqdm(dataloader, desc=f"Epoch {epoch + 1}/{num_epochs}")
 
-        for batch_idx, batch_data in enumerate(dataloader):
-            # 数据移至设备
-            frame_samples = batch_data["frame_samples"].to(device)
-            loss_flags = batch_data["loss_flags"].to(device)
-            loss_counts = batch_data["loss_counts"].to(device)
-            gcc_bitrate = batch_data["gcc_bitrate"].to(device)
-            rtt = batch_data["rtt"].to(device)
+        for batch in progress_bar:
+            frame_samples = batch["frame_samples"].to(device)
+            loss_flags = batch["loss_flags"].to(device)
+            loss_counts = batch["loss_counts"].to(device)
+            gcc_bitrate = batch["gcc_bitrate"].to(device)
+            rtt = batch["rtt"].to(device)
+            mask = batch["mask"].to(device)
 
-            # ----------------------
-            # 前向传播
-            # ----------------------
-            # 提取模型输入特征
-            batch_size = 1  # 每个 CSV 对应一个 batch
-            loss_rate = loss_counts.sum() / frame_samples[:, 1].sum() if loss_flags.any() else torch.tensor(0.0, device=device)
-            
-            # 构造模型输入（需要根据实际特征调整）
-            frame_seq = frame_samples  # 假设 frame_samples 直接作为 frame_transformer 输入
-            gcc_features = torch.cat([gcc_bitrate, rtt], dim=1)  # 组合 GCC 和 RTT 特征
-
-            # 模型预测
-            pred_bitrate, fec_ratios = model(
-                frame_seq=frame_seq,
-                loss_rate=loss_rate.unsqueeze(0).expand(batch_size, 1),  # 扩展维度匹配 batch
-                rtt=rtt.unsqueeze(0).expand(batch_size, 1),
-                gcc_features=gcc_features.unsqueeze(0).expand(batch_size, -1)
+            loss_rate = loss_counts.sum(dim=1) / frame_samples.sum(dim=1)
+            pred_bitrate, fec_table = model(
+                frame_samples, 
+                loss_rate.unsqueeze(-1), 
+                rtt, 
+                gcc_bitrate
             )
 
-            # ----------------------
-            # 计算损失
-            # ----------------------
-            # 真实 GCC 比特率（从 batch 数据中获取）
-            true_gcc_bitrate = gcc_bitrate.squeeze()
-
-            # 计算损失
             loss = loss_fn(
-                pred_bitrate=pred_bitrate,
-                gcc_bitrate=true_gcc_bitrate,
-                fec_table=fec_ratios,
-                frame_samples=frame_samples,
-                loss_flags=loss_flags,
-                loss_counts=loss_counts
+                pred_bitrate, 
+                gcc_bitrate.squeeze(-1), 
+                fec_table, 
+                frame_samples, 
+                loss_flags, 
+                loss_counts, 
+                rtt.squeeze(-1)
             )
 
-            # ----------------------
-            # 反向传播
-            # ----------------------
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            # 统计损失
             total_loss += loss.item()
+            progress_bar.set_postfix(loss=loss.item())
 
-            # 打印 batch 进度
-            if batch_idx % 10 == 0:
-                print(f"Epoch {epoch+1}, Batch {batch_idx}, Loss: {loss.item():.4f}")
-
-        # 打印 epoch 平均损失
+        scheduler.step()
         avg_loss = total_loss / len(dataloader)
-        print(f"Epoch {epoch+1}, Avg Loss: {avg_loss:.4f}")
+        print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {avg_loss:.4f}")
 
-# 示例用法
+        checkpoint_path = os.path.join(checkpoint_dir, f"checkpoint_epoch_{epoch + 1}.pt")
+        torch.save({
+            "epoch": epoch,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "scheduler_state_dict": scheduler.state_dict(),
+            "loss": avg_loss
+        }, checkpoint_path)
+        print(f"Checkpoint saved to {checkpoint_path}")
+
 if __name__ == "__main__":
-    # 初始化组件
-    fec_bins = torch.tensor([])  # 需与损失函数一致
-    model = fecnet(frame_transformer=FrameTransformer())  # 替换为你的 frame_transformer
-    loss_fn = OfflearningLoss(fec_bins)
-    
-    # 启动训练
-    train(
-        data_dir="",
-        fec_bins=fec_bins,
-        model=model,
-        loss_fn=loss_fn,
-        num_epochs=10,
-        lr=1e-4,
-        device="cuda"
-    )
+    train()
