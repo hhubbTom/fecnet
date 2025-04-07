@@ -10,7 +10,6 @@ class OfflearningDataset(Dataset):
         """
         Args:
             csv_path (str): train data
-            fec_bins (torch.Tensor): FEC frame level
         """
         self.df = pd.read_csv(csv_path, header=None)
         self.group_keys = []
@@ -26,14 +25,19 @@ class OfflearningDataset(Dataset):
                 current_group = []
             current_group.append(idx)
             prev_session = session
-            
+        del self.group_keys[0]
         if len(current_group) > 0:
             self.group_indices.append(current_group)
             self.group_keys.append(prev_session)
+            int_list = [int(x) for x in self.group_keys]
+            min_val  = min(int_list)
+            max_val = max(int_list)
+            full = set(range(min_val,max_val+1))
+            miss = sorted(full-set(int_list))
             pdb.set_trace()
 
     def __len__(self):
-        return len(self.group_indices)
+        return len(self.group_keys)
 
     def __getitem__(self, idx):
         group_rows = self.df.iloc[self.group_indices[idx]]
