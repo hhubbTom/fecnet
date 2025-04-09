@@ -1,13 +1,13 @@
 import torch
 import torch.nn as nn
-<<<<<<< HEAD
+
 #全连接层，处理loss，fc，delay_based GCC的输出值，融合特征，再通过两个预测头回归出bitrate和fec。
-=======
+
 # 基础概念
 # 多任务学习：通过共享特征表示学习多个相关任务，可以提高每个任务的性能。
 # 特征融合：将来自不同源的特征有效地组合起来，形成更丰富的表示。
 # 输出头：在共享特征表示之上，为每个任务添加专门的预测层
->>>>>>> master
+
 class fecnet(nn.Module):
     """network for bitrate and fec generation
     
