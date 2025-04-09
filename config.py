@@ -6,15 +6,18 @@ class Config:
     def __init__(self):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.data_dir = "data_newgs.csv"
+        # FEC预测的分级bins，这些值代表不同的冗余比率
         self.fec_bins = torch.tensor([2, 4, 6, 8, 10, 12, 14, 20, 50, 100])
+        # 帧Transformer模型参数
         self.frame_transformer_params = {
-            "d_model": 64,
-            "nhead": 2,
-            "num_layers": 2,
-            "dim_feedforward": 128
+            "d_model": 64,      # 模型维度
+            "nhead": 2,         # 多头注意力机制的头数
+            "num_layers": 2,    # Transformer层数
+            "dim_feedforward": 128  # 前馈网络隐藏层维度
         }
+        # FECNet模型参数
         self.fecnet_params = {
-            "gcc_input_dim": 5
+            "gcc_input_dim": 5# GCC输入特征维度
         }
         self.num_epochs = 20
         self.batch_size = 32

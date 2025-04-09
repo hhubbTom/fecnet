@@ -1,7 +1,10 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+#损失函数设计
+# 1. Fec优化损失
+# 2. 比特率奖励损失
+# 3. 拥塞导致的丢包惩罚。loss*bitrate
 class Multiloss(nn.Module):
     """The loss function of three optimization objectives
     

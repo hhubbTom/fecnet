@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-
+#全连接层，处理loss，fc，delay_based GCC的输出值，融合特征，再通过两个预测头回归出bitrate和fec。
 class fecnet(nn.Module):
     """network for bitrate and fec generation
     
