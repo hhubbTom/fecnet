@@ -1,7 +1,7 @@
 import torch
 import math
 import torch.nn as nn
-
+#处理变长序列，sin位置编码
 class FrameTransformer(nn.Module):
     """ frame feature extractor
 
