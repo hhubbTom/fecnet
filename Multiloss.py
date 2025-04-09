@@ -21,7 +21,7 @@ class Multiloss(nn.Module):
         self.packet_size = packet_size
         self.alpha = alpha
         self.beta = beta
-        self.gamma = gamma
+        self.gamma = gamma  #alpha, beta, gamma: 不同损失项的权重系数,gamma暂时没用上??
         self.device = device
 
     def forward(self, pred_bitrate, pred_fec, fec_level_table, frame_result):
@@ -29,12 +29,12 @@ class Multiloss(nn.Module):
         Args:
             pred_bitrate: 
             pred_fec:     
-            frame_result:   
-            fec_level:
+            frame_result:   帧处理结果
+            fec_level:  FEC级别表
         """
 
         
-        # to tensor
+        # to tensor  ----将输入的帧结果转换为张量
         frame_tensor_dict = {}
         for key in ['frame_size', 'fec', 'loss_packets', 'recovery_status']:
            sample_tensors = [torch.tensor(sample) for sample in frame_result[key]]
@@ -45,7 +45,8 @@ class Multiloss(nn.Module):
         recovery_status = frame_tensor_dict['recovery_status'] # 1 if the recovery is successful, 0 else. 
         
         # calculate fec value based on frame_size
-        # actually, level table can be learned
+        # actually, level table can be learned,这个表可以学习
+        #根据帧大小和FEC级别表确定FEC比率和FEC包数量
         indices = torch.searchsorted(fec_level_table, frame_size, side='left') - 1
         fec_ratio = pred_fec[indices]
         fec_packets_num = fec_ratio * frame_size
@@ -68,14 +69,14 @@ class Multiloss(nn.Module):
         return loss_fec_opt + loss_reward + loss_packets_loss_penalizes
     
 
-class OfflearningLoss(nn.Module):
+class OfflearningLoss(nn.Module):#离线的,我需要整这个?
     def __init__(self, fec_bins):
         """
         Args:
             fec_bins: Predefined fec table boundaries
         """
         super().__init__()
-        self.register_buffer('fec_bins', fec_bins.float())
+        self.register_buffer('fec_bins', fec_bins.float())#注册一个不需要梯度的张量缓冲区，存储FEC分段边界
 
     def forward(self, pred_bitrate, gcc_bitrate, fec_table, 
                 frame_samples, loss_flags, loss_counts, delay_gradient):
@@ -88,6 +89,7 @@ class OfflearningLoss(nn.Module):
             loss_flags: loss flag (batch, N)
             loss_counts: loss packet nums (batch, N)
         """
+        #下面6行,计算比特率损失，考虑了过预测和欠预测的不同影响，通过延迟梯度调整权重。这是一种非对称损失，在网络拥塞时更严格地惩罚过高的比特率预测
         # bitrate_loss = F.mse_loss(pred_bitrate, gcc_bitrate)
         bitrate_diff = pred_bitrate - gcc_bitrate
         positive_diff = torch.clamp(bitrate_diff, min=0)  
@@ -98,7 +100,7 @@ class OfflearningLoss(nn.Module):
         bitrate_loss = (positive_diff**2 * over_weight + negative_diff**2 * under_weight).mean()
         
         mask = loss_flags.bool()
-        if not mask.any():
+        if not mask.any():#如果没有丢包，只返回比特率损失
             return bitrate_loss  # no packets loss
         frame_sizes = frame_samples[mask].float()   
         loss_counts = loss_counts[mask].float()      
@@ -106,7 +108,7 @@ class OfflearningLoss(nn.Module):
         actual_loss_rate = loss_counts / frame_sizes
         bin_indices = torch.bucketize(frame_sizes, self.fec_bins, right=True) # (a, b]
         batch_indices = torch.arange(fec_table.size(0), device=fec_table.device)[:, None]
-        predicted_fec = fec_table[batch_indices,bin_indices] 
+        predicted_fec = fec_table[batch_indices,bin_indices] #计算实际丢包率，并根据帧大小查表
         
         under_protect = actual_loss_rate > predicted_fec
         over_protect = actual_loss_rate <= predicted_fec
