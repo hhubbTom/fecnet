@@ -58,15 +58,9 @@ class Multiloss(nn.Module):
         l2_norm = torch.norm(diff, p=2)
         loss_fec_opt = self.alpha * l2_norm[recovery_status]  + self.beta * l2_norm[torch.logical_not(recovery_status)] # The first item is recovery success item
         
-        #--------------------Bitrate reward loss---------------------#
-        # Risk loss
-        loss_reward = pred_bitrate + torch.mean(fec_packets_num/frame_size)
+
         
-        #--------------------High packet loss penalizes loss---------#
-        loss_rate = torch.count_nonzero(loss_packets / frame_size) / len(frame_result)
-        loss_packets_loss_penalizes = loss_rate * pred_bitrate
-        
-        return loss_fec_opt + loss_reward + loss_packets_loss_penalizes
+        return loss_fec_opt
     
 
 class OfflearningLoss(nn.Module):#离线的,我需要整这个?
