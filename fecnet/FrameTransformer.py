@@ -71,4 +71,4 @@ class FrameTransformer(nn.Module):
         
         # mean pool
         x = x.mean(dim=1)  # 对序列维度取平均，将所有时间步的信息压缩成一个向量(batch, seq_len, d_model)->(batch, d_model)
-        return self.output(x)#将64维特征映射到16维输出
+        return self.output(x)   #将64维特征映射到16维输出

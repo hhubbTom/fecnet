@@ -15,10 +15,8 @@ class Config:
             "num_layers": 2,    # Transformer层数
             "dim_feedforward": 128  # 前馈网络隐藏层维度
         }
-        # FECNet模型参数
-        self.fecnet_params = {
-            "gcc_input_dim": 5# GCC输入特征维度
-        }
+        # FECNet模型参数-移除了gcc_input_dim参数
+
         self.num_epochs = 20
         self.batch_size = 32
         self.checkpoint_dir = "checkpoints"
