@@ -15,6 +15,7 @@ class FrameTransformer(nn.Module):
         super().__init__()
         # Ascending dimension
         self.d_model = d_model
+
         self.embed = nn.Linear(1, d_model)  
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=d_model,
@@ -23,7 +24,6 @@ class FrameTransformer(nn.Module):
             batch_first=True,
             activation='gelu'
         )#创建了Transformer编码器
-        #包含注意力机制和前馈网络
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers) # transformer layer
         
         self.output = nn.Sequential(
@@ -49,17 +49,18 @@ class FrameTransformer(nn.Module):
                             )#用于位置编码的频率项，使不同位置和维度有不同的编码值
         
         pe = torch.zeros(1, seq_len, self.d_model, device=device)
-        pe[0, :, 0::2] = torch.sin(position * div_term)  
-        pe[0, :, 1::2] = torch.cos(position * div_term)  #偶数索引使用正弦函数，奇数索引使用余弦函数
+        pe[0, :, 0::2] = torch.sin(position * div_term)
+        pe[0, :, 1::2] = torch.cos(position * div_term)  #绝对位置编码
         
         return pe  # return (1, seq_len, d_model)
 
     def forward(self, x):
         
         # x shape: (batch, seq_len)
-        x = x.unsqueeze(-1)  # (batch, seq_len, 1)增加一个维度，将2D张量转换为3D张量。
-        #这类似于将一个平面表格变成一个有深度的数据块
-        x = self.embed(x)  # 通过嵌入层，将1维特征扩展到64维,(batch, seq_len, 1) -> (batch, seq_len, d_model)
+        if x.dim() == 2:
+            x = x.unsqueeze(-1)  # (batch, seq_len) -> (batch, seq_len, 1)
+        
+        x = self.embed(x)  # 将1维特征扩展到64维,(batch, seq_len, 1) -> (batch, seq_len, d_model)
         
         # position encoding
         seq_len = x.size(1)

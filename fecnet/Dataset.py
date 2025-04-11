@@ -1,98 +1,113 @@
 import os
 import torch
 from torch.utils.data import Dataset
-import pandas as pd
+import numpy as np
 from torch.nn.utils.rnn import pad_sequence
 import pdb
 
 class OfflearningDataset(Dataset):
-    def __init__(self, csv_path):
+    def __init__(self, txt_path, frames_per_group=5):
         """
         Args:
-            csv_path (str): train data
+            txt_path (str): 训练数据路径
+            frames_per_group (int): 每组帧的数量，用于Loss平均
         """
-        self.df = pd.read_csv(csv_path, header=None)#使用pandas读取CSV文件，不将第一行作为表头
-        self.group_keys = []
-        self.group_indices = []
-        current_group = []
-        prev_session = None
+         # 存储参数
+        self.frames_per_group = frames_per_group
+        # 读txt文件
+        with open(txt_path, 'r') as f:
+            lines = f.readlines()
+        
+        self.frame_sizes = []  # 帧大小
+        self.loss_counts = []  # 丢包数
+        self.rtts = []         # rtt值
+        for line in lines:
+            if line.strip():  
+                parts = line.strip().split()
+                if len(parts) >= 3:  # 没空数据，回头去掉
+                    self.frame_sizes.append(float(parts[0]))
+                    self.loss_counts.append(float(parts[1]))
+                    self.rtts.append(float(parts[2]))
 
-        for idx, row in self.df.iterrows():#遍历数据集中的每一行,当发现新的会话ID时，将前一个会话的所有索引保存起来
-            session = row[0]  
-            if session != prev_session and len(current_group) > 0:
-                self.group_indices.append(current_group)
-                self.group_keys.append(prev_session)
-                current_group = []
-            current_group.append(idx)
-            prev_session = session
-        del self.group_keys[0]#删除第一个组键,这是??
-        if len(current_group) > 0:
-            self.group_indices.append(current_group)
-            self.group_keys.append(prev_session)
+        # 转为NumPy数组
+        self.frame_sizes = np.array(self.frame_sizes)
+        self.loss_counts = np.array(self.loss_counts)
+        self.rtts = np.array(self.rtts)
 
-            int_list = [int(x) for x in self.group_keys]#计算会话ID的最小值和最大值，然后找出这个范围内缺失的ID。
-            min_val  = min(int_list)
-            max_val = max(int_list)
-            full = set(range(min_val,max_val+1))
-            miss = sorted(full-set(int_list))#
-            pdb.set_trace()#调试断点,用于检查缺失的session id
+        
+        total_frames = len(self.frame_sizes)
+        self.num_groups = total_frames // frames_per_group
+        if total_frames % frames_per_group != 0:
+            # 确保能被整除，可能需要丢弃末尾的几帧
+            self.num_groups += 1
+            # 填充逻辑，应该不用这样整了吧，数据不会出现id问题而不对齐
+            pad_size = self.num_groups * frames_per_group - total_frames
+            self.frame_sizes = np.pad(self.frame_sizes, (0, pad_size), 'edge')
+            self.loss_counts = np.pad(self.loss_counts, (0, pad_size), 'edge')
+            self.rtts = np.pad(self.rtts, (0, pad_size), 'edge')
+
+            pdb.set_trace()#调试断点 
 
     def __len__(self):
-        return len(self.group_keys)
+        return self.num_groups
 
     def __getitem__(self, idx):
-        group_rows = self.df.iloc[self.group_indices[idx]]
-        gcc_bw = group_rows.iloc[0, 5]  
-        rtt = group_rows.iloc[0, 6]     
-        frame_data = group_rows.iloc[:, :5].values 
-        frame_samples = torch.tensor(frame_data[:, [0, 2, 3, 4]], dtype=torch.float32)#选择列0,2,3,4
-        loss_counts = torch.tensor(frame_data[:, 1], dtype=torch.float32)
-        loss_flags = (loss_counts != 0)#从帧数据中提取丢包计数，并创建布尔丢包标志
+        #  起始和结束索引
+        start_idx = idx * self.frames_per_group
+        end_idx = start_idx + self.frames_per_group
+        
+        #  帧大小和丢包数
+        group_frame_sizes = self.frame_sizes[start_idx:end_idx]
+        group_loss_counts = self.loss_counts[start_idx:end_idx]
+        group_rtt_counts = self.rtts[start_idx:end_idx]
+        total_frames = len(group_frame_sizes)#总帧数量
+
+        # 计算平均RTT，使用组内最后一帧的RTT作为代表
+        total_rtt=np.sum(group_rtt_counts)
+        avg_rtt = total_rtt / total_frames if total_frames > 0 else 0
+
+        # 计算平均丢包率
+        total_loss = np.sum(group_loss_counts)
+        avg_loss_rate = total_loss / total_frames if total_frames > 0 else 0
+        
+        # 创建帧特征张量 - 只包含帧大小
+        frame_samples = torch.tensor(group_frame_sizes, dtype=torch.float32).unsqueeze(1)
+        
+        # 创建丢包标志和计数
+        loss_counts = torch.tensor(group_loss_counts, dtype=torch.float32)
+        loss_flags = (loss_counts != 0)
         
         return {
-            "gcc_bw": torch.tensor([gcc_bw], dtype=torch.float32),
-            "rtt": torch.tensor([rtt], dtype=torch.float32),
             "frame_samples": frame_samples,
             "loss_flags": loss_flags,
-            "loss_counts": loss_counts
-        }#返回字典
+            "loss_counts": loss_counts,
+            "rtt": torch.tensor([avg_rtt], dtype=torch.float32),
+            "avg_loss_rate": torch.tensor([avg_loss_rate], dtype=torch.float32),
+        }
 
-def collate_fn(batch):#批处理函数
-    gcc_bws = [item["gcc_bw"] for item in batch]
-    rtts = [item["rtt"] for item in batch]
+def collate_fn(batch):
     frame_samples = [item["frame_samples"] for item in batch]
     loss_flags = [item["loss_flags"] for item in batch]
-    loss_counts = [item["loss_counts"] for item in batch]#这5行是从批次中提取各个特征
+    loss_counts = [item["loss_counts"] for item in batch]
+    rtts = [item["rtt"] for item in batch]
+    avg_loss_rates = [item["avg_loss_rate"] for item in batch]
     
-    # 对变长序列进行padding-填充的意思
-    padded_frame_samples = pad_sequence(
-        frame_samples, 
-        batch_first=True, 
-        padding_value=0.0
-    )
+    # 对变长序列进行padding,这里也不用了吧
+    padded_frame_samples = pad_sequence(frame_samples, batch_first=True, padding_value=0.0)
+    padded_loss_flags = pad_sequence(loss_flags, batch_first=True, padding_value=0.0)
+    padded_loss_counts = pad_sequence(loss_counts, batch_first=True, padding_value=0.0)
     
-    padded_loss_flags = pad_sequence(
-        loss_flags,
-        batch_first=True,
-        padding_value=0.0
-    )
-    
-    padded_loss_counts = pad_sequence(
-        loss_counts,
-        batch_first=True,
-        padding_value=0.0
-    )
-    #下面是创建掩码，标记哪些是真实数据，哪些是填充。
+    # 计算序列长度和掩码
     seq_lengths = torch.tensor([len(s) for s in frame_samples], dtype=torch.long)
     max_len = padded_frame_samples.shape[1]
     mask = torch.arange(max_len).expand(len(seq_lengths), max_len) < seq_lengths.unsqueeze(1)
     
     return {
-        "gcc_bw": torch.stack(gcc_bws),
-        "rtt": torch.stack(rtts),
         "frame_samples": padded_frame_samples,
         "loss_flags": padded_loss_flags,
         "loss_counts": padded_loss_counts,
+        "rtt": torch.stack(rtts),
+        "avg_loss_rate": torch.stack(avg_loss_rates),
         "seq_lengths": seq_lengths,
         "mask": mask
     }

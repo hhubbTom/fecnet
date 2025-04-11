@@ -8,11 +8,11 @@ import torch.nn as nn
 # 输出头：在共享特征表示之上，为每个任务添加专门的预测层
 
 class fecnet(nn.Module):
-    """network for bitrate and fec generation
+    """network for fec generation
     
     Args:
         frame_transformer: 
-        gcc_input_dim: unknown dim
+        rtt_input_dim: 未知
     """
     def __init__(self, frame_transformer, gcc_input_dim=5):
         super().__init__()
@@ -21,7 +21,7 @@ class fecnet(nn.Module):
         self.loss_fc = nn.Sequential(
             nn.Linear(1, 8),
             nn.ReLU(),
-            nn.LayerNorm(8)#LayerNorm是一种归一化层
+            nn.LayerNorm(8)# 归一化层
         )
         self.rtt_fc = nn.Sequential(
             nn.Linear(1, 8),
@@ -29,15 +29,15 @@ class fecnet(nn.Module):
             nn.LayerNorm(8)
         )
         
-        merged_dim = 16 + 8 * 2     #计算合并后的特征维度
+        merged_dim = 16 + 8 * 2     #计算合并后的特征维度，去掉了gcc的8
         
-        self.joint_processor = nn.Sequential(  #处理合并后的特征
+        self.joint_processor = nn.Sequential(  #处理特征
             nn.Linear(merged_dim, 64),  
             nn.ReLU(),
             nn.LayerNorm(64)
         )
         
-        self.fec_head = nn.Sequential(  #创建FEC预测头，输出10个FEC比率，值范围在0-1之间
+        self.fec_head = nn.Sequential(  #FEC预测头，输出15个
             nn.Linear(64, 64),
             nn.ReLU(),
             nn.Linear(64, 15),
@@ -51,19 +51,20 @@ class fecnet(nn.Module):
             frame_seq: 
             loss_rate: 
             rtt: 
-            gcc_features: 
 
         Returns:
             bitrate, fec_ratio
         """
-
+        #transformers的输入是一个batch的序列数据，输出是一个batch的特征表示？
+        # frame_seq shape: (batch, 16)
         frame_feat = self.frame_transformer(frame_seq)  # (batch, 16)
         
         loss_feat = self.loss_fc(loss_rate.unsqueeze(-1))  # (batch, 8)
         rtt_feat = self.rtt_fc(rtt.unsqueeze(-1))          # (batch, 8)
 
         merged = torch.cat([frame_feat, loss_feat, rtt_feat], dim=1)
-        merged = self.joint_processor(merged)#通过联合处理器进一步处理联合特征
+        merged = self.joint_processor(merged)#处理联合特征
+        
         fec_ratios = self.fec_head(merged)               # (batch, 15)
         
         return fec_ratios

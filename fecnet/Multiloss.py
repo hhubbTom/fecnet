@@ -2,9 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 #损失函数设计
-# 1. Fec优化损失
-# 2. 比特率奖励损失
-# 3. 拥塞导致的丢包惩罚。loss*bitrate
+# 1. Fec优化损失，这个loss怎么改？？
+
 class Multiloss(nn.Module):
     """The loss function of three optimization objectives
     
@@ -63,7 +62,7 @@ class Multiloss(nn.Module):
         return loss_fec_opt
     
 
-class OfflearningLoss(nn.Module):#离线的,我需要整这个?
+class OfflearningLoss(nn.Module):#离线的
     def __init__(self, fec_bins):
         """
         Args:
@@ -76,12 +75,12 @@ class OfflearningLoss(nn.Module):#离线的,我需要整这个?
                 frame_samples, loss_flags, loss_counts, delay_gradient):
         """
         Args:
-            pred_bitrate: predicted bitrate (batch)
-            gcc_bitrate: GCC bitrate (batch)
-            fec_table: predicted FEC (batch, num_bins)
-            frame_samples: frame size (batch, N)
-            loss_flags: loss flag (batch, N)
-            loss_counts: loss packet nums (batch, N)
+            pred_bitrate: 预测的比特率
+            fec_table: 预测的FEC表
+            frame_samples: 帧大小
+            loss_flags: 丢包标志
+            loss_counts: 丢包计数
+            rtt: 往返时延
         """
         #下面6行,计算比特率损失，考虑了过预测和欠预测的不同影响，通过延迟梯度调整权重。这是一种非对称损失，在网络拥塞时更严格地惩罚过高的比特率预测
         # bitrate_loss = F.mse_loss(pred_bitrate, gcc_bitrate)
@@ -106,6 +105,7 @@ class OfflearningLoss(nn.Module):#离线的,我需要整这个?
         
         under_protect = actual_loss_rate > predicted_fec
         over_protect = actual_loss_rate <= predicted_fec
+
         loss_under = (actual_loss_rate[under_protect] - predicted_fec[under_protect]).sum() * 3
         loss_over = (predicted_fec[over_protect] - actual_loss_rate[over_protect]).sum()
         fec_loss = (loss_under + loss_over) / max(len(actual_loss_rate), 1)
