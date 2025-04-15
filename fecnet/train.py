@@ -8,13 +8,19 @@ from tqdm import tqdm
 from config import config  # 导入配置
 from FrameTransformer import FrameTransformer
 from Fecnet import fecnet
-from Dataset import OfflearningDataset, collate_fn
+from Dataset import OfflearningDataset
 import pdb
 from Multiloss import OfflearningLoss
 
 def train():
-    dataset = OfflearningDataset(config.data_dir, frames_per_group=config.frames_per_group)
-    pdb.set_trace()
+    dataset = OfflearningDataset(config.data_dir)
+    # 在这里添加断点，查看第一个样本
+    sample = dataset[0]
+    print("Sample keys:", sample.keys())
+    for key, value in sample.items():
+        print(f"{key}:", value)
+    pdb.set_trace()  # 添加断点
+
     frame_transformer = FrameTransformer(
         d_model=config.frame_transformer_params["d_model"],
         nhead=config.frame_transformer_params["nhead"],

@@ -14,7 +14,7 @@ class fecnet(nn.Module):
         frame_transformer: 
         rtt_input_dim: 未知
     """
-    def __init__(self, frame_transformer, gcc_input_dim=5):
+    def __init__(self, frame_transformer):
         super().__init__()
         self.frame_transformer = frame_transformer
         
@@ -53,7 +53,7 @@ class fecnet(nn.Module):
             rtt: 
 
         Returns:
-            bitrate, fec_ratio
+            fec_ratio:[batch, 15]
         """
         #transformers的输入是一个batch的序列数据，输出是一个batch的特征表示？
         # frame_seq shape: (batch, 16)

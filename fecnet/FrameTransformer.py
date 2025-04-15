@@ -55,7 +55,6 @@ class FrameTransformer(nn.Module):
         return pe  # return (1, seq_len, d_model)
 
     def forward(self, x):
-        
         # x shape: (batch, seq_len)
         if x.dim() == 2:
             x = x.unsqueeze(-1)  # (batch, seq_len) -> (batch, seq_len, 1)
