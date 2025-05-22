@@ -7,9 +7,9 @@ class Config:
     def __init__(self):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.data_dir = "frame_loss_rtt.txt"
-        self.frames_per_group = 5  # 用于Loss平均，防止拟合？
+        self.frames_per_group = 10  # 用于Loss平均，防止拟合？
         # FEC预测的分级bins
-        self.fec_bins = torch.tensor([ 1, 2, 3, 4, 6, 8, 10, 12, 14, 20, 30, 45, 60, 80, 100])
+        self.fec_bins = torch.tensor([2, 4, 6, 8, 10, 12, 14, 20, 50, 100])
         # 帧Transformer模型参数
         self.frame_transformer_params = {
             "d_model": 64,      # 模型维度
@@ -19,7 +19,7 @@ class Config:
         }
         # FECNet模型参数
         self.fecnet_params = {
-            "input_dim": 2  # 改为2，只有loss_rate和rtt
+            "input_dim": 2
         }
 
         self.num_epochs = 20

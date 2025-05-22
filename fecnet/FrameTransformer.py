@@ -1,3 +1,4 @@
+import pdb
 import torch
 import math
 import torch.nn as nn
@@ -58,17 +59,17 @@ class FrameTransformer(nn.Module):
         # x shape: (batch, seq_len)
         if x.dim() == 2:
             x = x.unsqueeze(-1)  # (batch, seq_len) -> (batch, seq_len, 1)
-        
-        x = self.embed(x)  # 将1维特征扩展到64维,(batch, seq_len, 1) -> (batch, seq_len, d_model)
+        #pdb.set_trace()
+        x = self.embed(x)  # 将1维特征扩展到64维,(batch, seq_len, 1) -> (batch, seq_len, d_model) ([32, 10, 1])
         
         # position encoding
-        seq_len = x.size(1)
-        pos_embed = self.generate_positional_encoding(seq_len, x.device)
-        x += pos_embed # (batch, seq_len, d_model)
+        seq_len = x.size(1)  #10
+        pos_embed = self.generate_positional_encoding(seq_len, x.device) #([1, 10, 64])
+        x += pos_embed # (batch, seq_len, d_model)  [32, 10, 64]
         
         # transformer layer将数据通过Transformer编码器处理
         x = self.transformer(x)  # (batch, seq_len, d_model)
         
         # mean pool
         x = x.mean(dim=1)  # 对序列维度取平均，将所有时间步的信息压缩成一个向量(batch, seq_len, d_model)->(batch, d_model)
-        return self.output(x)   #将64维特征映射到16维输出
+        return self.output(x)   #将64维特征映射到16维输出 Size([32, 64])

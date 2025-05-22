@@ -26,9 +26,16 @@ class OfflearningDataset(Dataset):
         # 计算 loss 和 rtt 的平均值
         mean_loss = chunk[1].mean()  # 对第1列（loss）取均值
         mean_rtt = chunk[2].mean()   # 对第2列（rtt）取均值
+        # 直接转换为张量
+        frames_tensor = torch.tensor(chunk[0].values, dtype=torch.float32).unsqueeze(1)
+        loss_tensor = torch.tensor([mean_loss], dtype=torch.float32)
+        rtt_tensor = torch.tensor([mean_rtt], dtype=torch.float32)
+    
         
         return {
-            "frames": chunk[0],
-            "loss": mean_loss,
-            "rtt":  mean_rtt
+            "frames": frames_tensor,
+            "avg_loss": loss_tensor,
+            "rtt":  rtt_tensor,
+            "loss_frames": frames_tensor,
+            "loss": torch.tensor(chunk[1].values, dtype=torch.float32).unsqueeze(1)
         }#返回字典
