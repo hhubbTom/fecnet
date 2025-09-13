@@ -1,12 +1,14 @@
 # config.py
 import torch
+import os
 
 class Config:
     """config"""
     def __init__(self):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.data_dir = "data_newgs.csv"
-        # FEC预测的分级bins，这些值代表不同的冗余比率
+        self.data_dir = "frame_loss_rtt.txt"
+        self.frames_per_group = 10  # 用于Loss平均，防止拟合？
+        # FEC预测的分级bins
         self.fec_bins = torch.tensor([2, 4, 6, 8, 10, 12, 14, 20, 50, 100])
         # 帧Transformer模型参数
         self.frame_transformer_params = {
@@ -17,19 +19,26 @@ class Config:
         }
         # FECNet模型参数
         self.fecnet_params = {
-            "gcc_input_dim": 5# GCC输入特征维度
+            "input_dim": 2
         }
+
         self.num_epochs = 20
         self.batch_size = 32
         self.checkpoint_dir = "checkpoints"
-        self.resume_checkpoint = None  # 例如："checkpoints/checkpoint_epoch_10.pt"
+        os.makedirs(self.checkpoint_dir, exist_ok=True)
+        self.resume_checkpoint = None
         self.optimizer_params = {
             "lr": 1e-3,
             "betas": (0.9, 0.999),
-            "weight_decay": 0.0
+            "weight_decay": 0.0   # 要增加权重衰减吗？
         }
         self.scheduler_params = {
             "step_size": 5,
             "gamma": 0.1
+        }
+        # 损失函数权重
+        self.loss_weights = {
+            "bitrate": 1.0,
+            "fec": 2.0
         }
 config = Config()
